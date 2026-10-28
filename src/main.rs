@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: Apache-2.0
 
 //! pouletb — download one torrent, then exit. No GUI, no daemon, no seeding.
 
@@ -10,15 +10,21 @@ use indicatif::{ProgressBar, ProgressStyle};
 use librqbit::{AddTorrent, AddTorrentOptions, AddTorrentResponse, Session, SessionOptions};
 use tracing::Level;
 
+mod config;
+
 #[derive(Parser)]
 #[command(version, about = "Download a single torrent and exit")]
 struct Args {
     /// Path to a .torrent file, a magnet link, or an http(s) URL to a .torrent
     torrent: String,
 
-    /// Directory to download into
-    #[arg(short, long, default_value = ".")]
-    output: PathBuf,
+    /// Directory to download into [default: `output` from the config file, else .]
+    #[arg(short, long)]
+    output: Option<PathBuf>,
+
+    /// Config file [default: ~/.config/pouletb/config.json]
+    #[arg(long, value_name = "FILE")]
+    config: Option<PathBuf>,
 
     /// Resume into / overwrite files that already exist in the output directory
     #[arg(long)]
@@ -51,12 +57,22 @@ async fn main() -> anyhow::Result<()> {
         .with_writer(std::io::stderr)
         .init();
 
-    std::fs::create_dir_all(&args.output)
-        .with_context(|| format!("cannot create {}", args.output.display()))?;
+    let config = match args.config.clone().or_else(config::default_path) {
+        Some(path) => config::Config::load(&path)?,
+        None => config::Config::default(),
+    };
+    let output = args
+        .output
+        .clone()
+        .or_else(|| config.output_dir())
+        .unwrap_or_else(|| PathBuf::from("."));
+
+    std::fs::create_dir_all(&output)
+        .with_context(|| format!("cannot create {}", output.display()))?;
 
     // A one-shot tool: no session persistence or fastresume. librqbit still caches
     // its DHT routing table in the OS cache dir so the next run finds peers faster.
-    let session = Session::new_with_opts(args.output.clone(), SessionOptions::default())
+    let session = Session::new_with_opts(output, SessionOptions::default())
         .await
         .context("cannot start torrent session")?;
 

@@ -23,8 +23,24 @@ pouletb file.torrent --overwrite         # resume an interrupted download
 pouletb file.torrent -v                  # show engine logs (-vv for debug)
 ```
 
+## Config
+
+Optional, at `~/.config/pouletb/config.json` (or `$XDG_CONFIG_HOME/pouletb/config.json`, or `--config <file>`):
+
+```json
+{
+  "output": "~/Public"
+}
+```
+
+| Key | Meaning |
+|---|---|
+| `output` | Default download directory; `~` is expanded. `-o` overrides it. Without either, the current directory is used. |
+
+Unknown keys are rejected, so a typo fails loudly instead of being ignored.
+
 Every piece is SHA-1 verified before it is written. Ctrl-C stops cleanly; rerun with `--overwrite` to resume, and pieces already on disk are re-checked rather than downloaded again.
 
 ## License
 
-MIT
+Apache-2.0 — see [LICENSE](LICENSE).
