@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/jfarcand/pouletb/actions/workflows/ci.yml/badge.svg)](https://github.com/jfarcand/pouletb/actions/workflows/ci.yml)
 [![crates.io](https://img.shields.io/crates/v/pouletb.svg)](https://crates.io/crates/pouletb)
-[![License](https://img.shields.io/crates/l/pouletb.svg)](LICENSE)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
 **Download one torrent from the command line, then exit, or keep sharing it.**
 
