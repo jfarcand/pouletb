@@ -9,7 +9,7 @@ homepage = "https://github.com/jfarcand/pouletb"
 readme = "README.md"
 keywords = ["torrent", "bittorrent", "magnet", "download", "cli"]
 categories = ["command-line-utilities", "network-programming"]
-exclude = ["/.github"]
+exclude = ["/.github", "/macos"]
 
 [dependencies]
 anyhow = "1.0.104"

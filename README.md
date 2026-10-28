@@ -48,6 +48,19 @@ pouletb --print-config                   # the effective config, as JSON
 
 **Multi-file torrents** are downloaded into a sub-folder named after the torrent.
 
+## macOS: open torrents with a double-click
+
+`macos/install.sh` builds a small companion app, `Pouletb.app`, and makes it the default handler for `.torrent` files and `magnet:` links. Opening one starts `pouletb` in a new Terminal window, so you see the progress bar; downloads go wherever your config's `output` points.
+
+```bash
+cargo install pouletb
+git clone https://github.com/jfarcand/pouletb && pouletb/macos/install.sh
+```
+
+- The app goes into `~/Applications` (set `POULETB_APP_DIR` to change it). Nothing needs Xcode: it is an AppleScript applet built with the system's `osacompile`.
+- The first time, macOS asks whether Pouletb may control Terminal; allow it. Changing the `magnet:` handler may also ask for confirmation.
+- `macos/install.sh --uninstall` removes it, and your previous torrent app becomes the handler again.
+
 ## Config
 
 Optional JSON at `~/.config/pouletb/config.json` (or `$XDG_CONFIG_HOME/pouletb/config.json`, or `--config <file>`). Every key is optional; set only what you want to change:
