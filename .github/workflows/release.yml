@@ -40,7 +40,7 @@ jobs:
             echo "::error::CHANGELOG.md has no '## ${version}' section"
             exit 1
           fi
-          printf '\nInstall: `brew install jfarcand/tap/pouletb`, `cargo install pouletb`, or a binary below.\n' >> notes.md
+          printf '\nInstall: `brew trust --formula jfarcand/tap/pouletb && brew install jfarcand/tap/pouletb`, `cargo install pouletb`, or a binary below.\n' >> notes.md
           if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
             echo "release ${GITHUB_REF_NAME} already exists"
           else

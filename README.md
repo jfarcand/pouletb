@@ -17,9 +17,10 @@ The BitTorrent engine is [librqbit](https://github.com/ikatson/rqbit): trackers 
 
 ## Install
 
-With [Homebrew](https://brew.sh) (macOS, Linux):
+With [Homebrew](https://brew.sh) (macOS, Linux x86_64):
 
 ```bash
+brew trust --formula jfarcand/tap/pouletb   # Homebrew asks you to trust formulae outside its own taps
 brew install jfarcand/tap/pouletb
 ```
 
@@ -91,6 +92,7 @@ A few habits that make a real difference:
 `macos/install.sh` builds a small companion app, `Pouletb.app`, and makes it the default handler for `.torrent` files and `magnet:` links. Opening one starts `pouletb` in a new Terminal window, so you see the progress bar; downloads go wherever your config's `output` points.
 
 ```bash
+brew trust --formula jfarcand/tap/pouletb
 brew install jfarcand/tap/pouletb && "$(brew --prefix)/share/pouletb/install.sh"
 ```
 
