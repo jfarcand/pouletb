@@ -62,7 +62,7 @@ async fn main() -> anyhow::Result<()> {
         .with_writer(std::io::stderr)
         .init();
 
-    let config = match args.config.clone().or_else(config::default_path) {
+    let mut config = match args.config.clone().or_else(config::default_path) {
         Some(path) => config::Config::load(&path)?,
         None => config::Config::default(),
     };
@@ -82,6 +82,10 @@ async fn main() -> anyhow::Result<()> {
 
     std::fs::create_dir_all(&output)
         .with_context(|| format!("cannot create {}", output.display()))?;
+
+    if let Some(busy) = config.pick_free_listen_port() {
+        eprintln!("listen port {busy} is in use, listening on a random port instead");
+    }
 
     // A one-shot tool: no session persistence or fastresume.
     let session = Session::new_with_opts(output, config.session_options()?)

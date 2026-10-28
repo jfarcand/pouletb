@@ -60,9 +60,11 @@ pub struct Config {
 #[derive(Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Listen {
-    /// Accept incoming peer connections. Off by default in librqbit.
+    /// Accept incoming peer connections. Off in librqbit; on here because
+    /// connectable peers get noticeably faster downloads.
     pub enabled: bool,
-    /// 0 = a random port.
+    /// 0 = a random port. If the port is taken (another pouletb running),
+    /// a random one is used instead.
     pub port: u16,
     pub mode: ListenMode,
     /// Ask the router to forward `port` via UPnP.
@@ -119,7 +121,8 @@ pub enum Rate {
 }
 
 // The values librqbit 9 uses when the option is unset (see its peer_connection.rs
-// and live/mod.rs); spelled out so the config file shows what is in effect.
+// and live/mod.rs), spelled out so the config file shows what is in effect.
+// The one deliberate difference: listening with UPnP is on (see `Listen`).
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -147,10 +150,10 @@ impl Default for Config {
 impl Default for Listen {
     fn default() -> Self {
         Self {
-            enabled: false,
+            enabled: true,
             port: 4240,
             mode: ListenMode::Tcp,
-            upnp: false,
+            upnp: true,
             announce_port: None,
             // librqbit's DEFAULT_MAX_PENDING_INCOMING_HANDSHAKE_CHECKS, which it does not export.
             max_pending_handshakes: 256,
@@ -192,6 +195,9 @@ impl Default for PeerTimeouts {
 impl Config {
     pub fn load(path: &Path) -> anyhow::Result<Self> {
         let config: Self = match std::fs::read_to_string(path) {
+            // Empty counts as missing, so `--print-config > config.json` works:
+            // the shell truncates the file before pouletb reads it.
+            Ok(text) if text.trim().is_empty() => Self::default(),
             Ok(text) => serde_json::from_str(&text)
                 .with_context(|| format!("invalid config {}", path.display()))?,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Self::default(),
@@ -202,6 +208,25 @@ impl Config {
             .session_options()
             .with_context(|| format!("invalid config {}", path.display()))?;
         Ok(config)
+    }
+
+    /// Fall back to a random listen port when the configured one is in use,
+    /// since librqbit fails the whole session on a bind error.
+    pub fn pick_free_listen_port(&mut self) -> Option<u16> {
+        let port = self.listen.port;
+        if !self.listen.enabled || port == 0 {
+            return None;
+        }
+        let addr = SocketAddr::from((Ipv6Addr::UNSPECIFIED, port));
+        let tcp_busy = matches!(self.listen.mode, ListenMode::Tcp | ListenMode::TcpAndUtp)
+            && std::net::TcpListener::bind(addr).is_err();
+        let udp_busy = matches!(self.listen.mode, ListenMode::Utp | ListenMode::TcpAndUtp)
+            && std::net::UdpSocket::bind(addr).is_err();
+        if tcp_busy || udp_busy {
+            self.listen.port = 0;
+            return Some(port);
+        }
+        None
     }
 
     pub fn output_dir(&self) -> Option<PathBuf> {
@@ -351,6 +376,15 @@ mod tests {
     }
 
     #[test]
+    fn empty_file_is_default() {
+        let path = std::env::temp_dir().join(format!("pouletb-empty-{}.json", std::process::id()));
+        std::fs::write(&path, "\n").unwrap();
+        let loaded = Config::load(&path);
+        std::fs::remove_file(&path).unwrap();
+        assert_eq!(loaded.unwrap().peer_limit, 128);
+    }
+
+    #[test]
     fn rates_parse_with_suffixes() {
         assert_eq!(parse_rate("10M").unwrap(), 10 * 1024 * 1024);
         assert_eq!(parse_rate("512k").unwrap(), 512 * 1024);
@@ -366,7 +400,9 @@ mod tests {
     #[test]
     fn defaults_map_to_librqbit_defaults() {
         let o = Config::default().session_options().unwrap();
-        assert!(o.listen.is_none(), "librqbit does not listen unless asked");
+        let l = o.listen.expect("pouletb listens by default, unlike librqbit");
+        assert_eq!(l.listen_addr.port(), 4240);
+        assert!(l.enable_upnp_port_forwarding);
         assert!(o.dht.is_some_and(|d| d.persistence.is_some()));
         assert!(!o.disable_trackers && !o.disable_local_service_discovery);
         assert!(o.ratelimits.download_bps.is_none() && o.ratelimits.upload_bps.is_none());
@@ -390,6 +426,20 @@ mod tests {
         assert_eq!(o.bind_device_name.as_deref(), Some("utun3"));
         assert_eq!(o.ratelimits.download_bps.unwrap().get(), 2 * 1024 * 1024);
         assert_eq!(o.peer_limit, Some(40));
+    }
+
+    #[test]
+    fn busy_listen_port_falls_back_to_random() {
+        let held = std::net::TcpListener::bind((Ipv6Addr::UNSPECIFIED, 0)).unwrap();
+        let busy = held.local_addr().unwrap().port();
+        let mut c = Config::default();
+        c.listen.port = busy;
+        assert_eq!(c.pick_free_listen_port(), Some(busy));
+        assert_eq!(c.listen.port, 0);
+
+        let mut free = Config::default();
+        free.listen.port = 0;
+        assert_eq!(free.pick_free_listen_port(), None);
     }
 
     #[test]
