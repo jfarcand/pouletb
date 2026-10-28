@@ -17,13 +17,19 @@ The BitTorrent engine is [librqbit](https://github.com/ikatson/rqbit): trackers 
 
 ## Install
 
+With [Homebrew](https://brew.sh) (macOS, Linux):
+
+```bash
+brew install jfarcand/tap/pouletb
+```
+
 From [crates.io](https://crates.io/crates/pouletb), with a Rust toolchain ([rustup.rs](https://rustup.rs)):
 
 ```bash
 cargo install pouletb
 ```
 
-Or a prebuilt binary (Apple Silicon macOS) from [Releases](https://github.com/jfarcand/pouletb/releases): unpack it and put `pouletb` on your `PATH`. It is ad-hoc signed, not notarized, so after a browser download run `xattr -d com.apple.quarantine pouletb` once.
+Or a prebuilt binary from [Releases](https://github.com/jfarcand/pouletb/releases), for macOS (Apple Silicon and Intel), Linux x86_64 and Windows x86_64: unpack it and put `pouletb` on your `PATH`. The macOS binaries are not notarized, so after a browser download run `xattr -d com.apple.quarantine pouletb` once.
 
 Or the latest commit:
 
@@ -85,9 +91,10 @@ A few habits that make a real difference:
 `macos/install.sh` builds a small companion app, `Pouletb.app`, and makes it the default handler for `.torrent` files and `magnet:` links. Opening one starts `pouletb` in a new Terminal window, so you see the progress bar; downloads go wherever your config's `output` points.
 
 ```bash
-cargo install pouletb
-git clone https://github.com/jfarcand/pouletb && pouletb/macos/install.sh
+brew install jfarcand/tap/pouletb && "$(brew --prefix)/share/pouletb/install.sh"
 ```
+
+Without Homebrew: `cargo install pouletb`, then `git clone https://github.com/jfarcand/pouletb && pouletb/macos/install.sh`.
 
 - The app goes into `~/Applications` (set `POULETB_APP_DIR` to change it). Nothing needs Xcode: it is an AppleScript applet built with the system's `osacompile`.
 - The first time, macOS asks whether Pouletb may control Terminal; allow it. Changing the `magnet:` handler may also ask for confirmation.

@@ -7,6 +7,8 @@
 - `bind_interface` accepts an address range such as `"10.128.0.0/10"`, binding to whichever interface holds an address in it and refusing to start when none does: a VPN kill switch that survives `utunN` renumbering.
 - Completion and seeding summaries are printed even when the output is not a terminal.
 - CI on Linux, macOS and Windows, with the strict clippy policy (all, pedantic and nursery denied).
+- Homebrew: `brew install jfarcand/tap/pouletb`, which also installs the macOS companion's installer.
+- Release binaries for macOS (Apple Silicon and Intel), Linux x86_64 and Windows x86_64, built by CI from the signed tag.
 
 ## 0.1.0
 

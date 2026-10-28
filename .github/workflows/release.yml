@@ -1,0 +1,108 @@
+name: Release
+
+# Runs when a signed v* tag is pushed. The tag, the crates.io publish and the
+# version bump happen locally (signing needs the maintainer's key); this
+# creates the GitHub release from that version's CHANGELOG.md section and
+# attaches a binary per platform as each build finishes. A slow or failing
+# platform never blocks the others.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  release:
+    name: Create release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check tag matches Cargo.toml
+        run: |
+          crate=$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)
+          if [ "v${crate}" != "${GITHUB_REF_NAME}" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} does not match Cargo.toml version ${crate}"
+            exit 1
+          fi
+      - name: Create the release from CHANGELOG.md
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          # The section between "## <version>" and the next "## " heading.
+          awk -v v="## ${version}" '$0 == v {f=1; next} /^## / {f=0} f' CHANGELOG.md > notes.md
+          if [ ! -s notes.md ]; then
+            echo "::error::CHANGELOG.md has no '## ${version}' section"
+            exit 1
+          fi
+          printf '\nInstall: `brew install jfarcand/tap/pouletb`, `cargo install pouletb`, or a binary below.\n' >> notes.md
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            echo "release ${GITHUB_REF_NAME} already exists"
+          else
+            gh release create "${GITHUB_REF_NAME}" --verify-tag \
+              --title "pouletb ${version}" --notes-file notes.md
+          fi
+
+  binaries:
+    name: Binary (${{ matrix.target }})
+    needs: release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            os: macos-latest
+          - target: x86_64-apple-darwin
+            os: macos-latest # cross-compiled from arm64: Intel runners are scarce
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - run: cargo build --release --locked --target ${{ matrix.target }}
+
+      - name: Package (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          dir="pouletb-${GITHUB_REF_NAME}-${{ matrix.target }}"
+          mkdir "$dir"
+          cp "target/${{ matrix.target }}/release/pouletb" README.md LICENSE CHANGELOG.md "$dir/"
+          # The companion app's sources, so Homebrew can install them.
+          if [ "${{ runner.os }}" = macOS ]; then cp -R macos "$dir/"; fi
+          tar czf "$dir.tar.gz" "$dir"
+          shasum -a 256 "$dir.tar.gz" > "$dir.tar.gz.sha256"
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $dir = "pouletb-$env:GITHUB_REF_NAME-${{ matrix.target }}"
+          New-Item -ItemType Directory -Path $dir | Out-Null
+          Copy-Item "target/${{ matrix.target }}/release/pouletb.exe", README.md, LICENSE, CHANGELOG.md $dir
+          Compress-Archive -Path "$dir/*" -DestinationPath "$dir.zip"
+          $hash = (Get-FileHash "$dir.zip" -Algorithm SHA256).Hash.ToLower()
+          "$hash  $dir.zip" | Out-File -Encoding ascii "$dir.zip.sha256"
+
+      - name: Attach to the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Explicit extensions: the staging directory's name contains dots too.
+          shopt -s nullglob
+          files=(pouletb-v*.tar.gz pouletb-v*.zip pouletb-v*.sha256)
+          gh release upload "${GITHUB_REF_NAME}" "${files[@]}" --clobber
