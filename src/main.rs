@@ -3,15 +3,20 @@
 //! pouletb — download one torrent, then exit (or keep seeding it with `--share`).
 //! No GUI, no daemon.
 
-use std::{net::SocketAddr, path::PathBuf, time::Duration};
+use std::{fs, io, net::SocketAddr, path::PathBuf, time::Duration};
 
 use anyhow::{Context, bail};
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
 use librqbit::{AddTorrent, AddTorrentOptions, AddTorrentResponse, ManagedTorrent, Session};
+use tokio::{signal, time};
 use tracing::Level;
 
 mod config;
+
+/// indicatif's template syntax, not a `format!` string.
+const DOWNLOAD_TEMPLATE: &str =
+    "{msg} [{bar:30}] {bytes}/{total_bytes} {binary_bytes_per_sec} eta {eta}";
 
 #[derive(Parser)]
 #[command(
@@ -72,7 +77,7 @@ async fn main() -> anyhow::Result<()> {
     };
     tracing_subscriber::fmt()
         .with_max_level(level)
-        .with_writer(std::io::stderr)
+        .with_writer(io::stderr)
         .init();
 
     let mut config = match args.config.clone().or_else(config::default_path) {
@@ -93,8 +98,7 @@ async fn main() -> anyhow::Result<()> {
         .or_else(|| config.output_dir())
         .unwrap_or_else(|| PathBuf::from("."));
 
-    std::fs::create_dir_all(&output)
-        .with_context(|| format!("cannot create {}", output.display()))?;
+    fs::create_dir_all(&output).with_context(|| format!("cannot create {}", output.display()))?;
 
     if let Some((name, ip)) = config.resolve_bind_interface()? {
         match ip {
@@ -133,12 +137,8 @@ async fn main() -> anyhow::Result<()> {
     };
 
     let name = handle.name().unwrap_or_else(|| "torrent".to_owned());
-    let bar = ProgressBar::new(0).with_style(
-        ProgressStyle::with_template(
-            "{msg} [{bar:30}] {bytes}/{total_bytes} {binary_bytes_per_sec} eta {eta}",
-        )?
-        .progress_chars("=> "),
-    );
+    let bar = ProgressBar::new(0)
+        .with_style(ProgressStyle::with_template(DOWNLOAD_TEMPLATE)?.progress_chars("=> "));
     bar.set_message(name.clone());
     bar.enable_steady_tick(Duration::from_millis(200));
 
@@ -154,14 +154,14 @@ async fn main() -> anyhow::Result<()> {
                     let peers = &live.snapshot.peer_stats;
                     bar.set_message(format!("{name} ({} peers)", peers.live));
                 }
-                tokio::time::sleep(Duration::from_millis(500)).await;
+                time::sleep(Duration::from_millis(500)).await;
             }
         })
     };
 
     let result = tokio::select! {
         r = handle.wait_until_completed() => r,
-        _ = tokio::signal::ctrl_c() => {
+        _ = signal::ctrl_c() => {
             bar.abandon_with_message("interrupted — rerun with --overwrite to resume");
             progress.abort();
             session.stop().await;
@@ -200,7 +200,7 @@ async fn seed(handle: &ManagedTorrent) -> anyhow::Result<()> {
     }
 
     // One future for the whole loop, so a Ctrl-C between ticks is not lost.
-    let ctrl_c = tokio::signal::ctrl_c();
+    let ctrl_c = signal::ctrl_c();
     tokio::pin!(ctrl_c);
     loop {
         tokio::select! {
@@ -208,7 +208,7 @@ async fn seed(handle: &ManagedTorrent) -> anyhow::Result<()> {
                 r?;
                 break;
             }
-            _ = tokio::time::sleep(Duration::from_secs(1)) => {
+            () = time::sleep(Duration::from_secs(1)) => {
                 let stats = handle.stats();
                 let (peers, up) = stats
                     .live

@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # A warning is an error in CI, without RUSTFLAGS rebuilding dependencies.
+  CARGO_BUILD_WARNINGS: deny
+
+jobs:
+  fmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --check
+
+  test:
+    name: clippy + test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      # Lints can differ per platform (cfg-gated code in dependencies' APIs).
+      - run: cargo clippy --all-targets --all-features --locked
+      - run: cargo test --locked
+      - run: cargo run --locked -- --print-config --config does-not-exist.json
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # Builds the crate exactly as crates.io would receive it.
+      - run: cargo package --locked
+
+  macos-app:
+    name: macOS companion app
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash -n macos/install.sh
+      - run: osacompile -o "$RUNNER_TEMP/Pouletb.app" macos/Pouletb.applescript
+      - run: swiftc -typecheck macos/set-default-handler.swift

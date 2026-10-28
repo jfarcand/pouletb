@@ -1,0 +1,8 @@
+# Unit tests live in `#[cfg(test)] mod tests`; the crate denies unwrap_used,
+# expect_used and panic, and inside a test those are how a test fails.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+
+# UPnP is the protocol's own spelling, not a code identifier.
+doc-valid-idents = ["UPnP", ".."]

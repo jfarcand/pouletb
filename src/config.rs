@@ -7,7 +7,9 @@
 //! shows.
 
 use std::{
-    net::{IpAddr, Ipv6Addr, SocketAddr},
+    env, fs,
+    io::ErrorKind,
+    net::{IpAddr, Ipv6Addr, SocketAddr, TcpListener, UdpSocket},
     num::NonZeroU32,
     path::{Path, PathBuf},
     time::Duration,
@@ -113,16 +115,20 @@ pub struct Trackers {
     pub force_interval_secs: Option<u64>,
 }
 
+/// Seconds; the `_secs` suffix lives in the JSON keys only.
 #[derive(Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct PeerTimeouts {
-    pub connect_secs: u64,
-    pub read_write_secs: u64,
-    pub keep_alive_secs: u64,
+    #[serde(rename = "connect_secs")]
+    pub connect: u64,
+    #[serde(rename = "read_write_secs")]
+    pub read_write: u64,
+    #[serde(rename = "keep_alive_secs")]
+    pub keep_alive: u64,
 }
 
 /// A rate as plain bytes per second or a string with a binary K/M/G suffix.
-#[derive(Deserialize, Serialize, Clone, PartialEq, Debug)]
+#[derive(Deserialize, Serialize, Clone, PartialEq, Eq, Debug)]
 #[serde(untagged)]
 pub enum Rate {
     Bytes(u32),
@@ -195,22 +201,22 @@ impl Default for Trackers {
 impl Default for PeerTimeouts {
     fn default() -> Self {
         Self {
-            connect_secs: 10,
-            read_write_secs: 10,
-            keep_alive_secs: 120,
+            connect: 10,
+            read_write: 10,
+            keep_alive: 120,
         }
     }
 }
 
 impl Config {
     pub fn load(path: &Path) -> anyhow::Result<Self> {
-        let config: Self = match std::fs::read_to_string(path) {
+        let config: Self = match fs::read_to_string(path) {
             // Empty counts as missing, so `--print-config > config.json` works:
             // the shell truncates the file before pouletb reads it.
             Ok(text) if text.trim().is_empty() => Self::default(),
             Ok(text) => serde_json::from_str(&text)
                 .with_context(|| format!("invalid config {}", path.display()))?,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Self::default(),
+            Err(e) if e.kind() == ErrorKind::NotFound => Self::default(),
             Err(e) => return Err(e).with_context(|| format!("cannot read {}", path.display())),
         };
         // Surface bad values now, naming the file, rather than mid-download.
@@ -229,9 +235,9 @@ impl Config {
         }
         let addr = SocketAddr::from((Ipv6Addr::UNSPECIFIED, port));
         let tcp_busy = matches!(self.listen.mode, ListenMode::Tcp | ListenMode::TcpAndUtp)
-            && std::net::TcpListener::bind(addr).is_err();
+            && TcpListener::bind(addr).is_err();
         let udp_busy = matches!(self.listen.mode, ListenMode::Utp | ListenMode::TcpAndUtp)
-            && std::net::UdpSocket::bind(addr).is_err();
+            && UdpSocket::bind(addr).is_err();
         if tcp_busy || udp_busy {
             self.listen.port = 0;
             return Some(port);
@@ -274,9 +280,9 @@ impl Config {
 
     pub fn session_options(&self) -> anyhow::Result<SessionOptions> {
         let peer_opts = PeerConnectionOptions {
-            connect_timeout: Some(Duration::from_secs(self.peer_timeouts.connect_secs)),
-            read_write_timeout: Some(Duration::from_secs(self.peer_timeouts.read_write_secs)),
-            keep_alive_interval: Some(Duration::from_secs(self.peer_timeouts.keep_alive_secs)),
+            connect_timeout: Some(Duration::from_secs(self.peer_timeouts.connect)),
+            read_write_timeout: Some(Duration::from_secs(self.peer_timeouts.read_write)),
+            keep_alive_interval: Some(Duration::from_secs(self.peer_timeouts.keep_alive)),
         };
         let listen = self.listen.enabled.then(|| ListenerOptions {
             mode: match self.listen.mode {
@@ -370,15 +376,15 @@ fn parse_rate(text: &str) -> anyhow::Result<u64> {
 }
 
 pub fn default_path() -> Option<PathBuf> {
-    let base = match std::env::var_os("XDG_CONFIG_HOME") {
+    let base = match env::var_os("XDG_CONFIG_HOME") {
         Some(dir) if !dir.is_empty() => PathBuf::from(dir),
-        _ => std::env::home_dir()?.join(".config"),
+        _ => env::home_dir()?.join(".config"),
     };
     Some(base.join("pouletb").join("config.json"))
 }
 
 fn expand_tilde(path: &str) -> PathBuf {
-    let home = std::env::home_dir();
+    let home = env::home_dir();
     match (path.strip_prefix('~'), home) {
         (Some(""), Some(home)) => home,
         (Some(rest), Some(home)) if rest.starts_with('/') => home.join(&rest[1..]),
@@ -388,11 +394,13 @@ fn expand_tilde(path: &str) -> PathBuf {
 
 #[cfg(test)]
 mod tests {
+    use std::process;
+
     use super::*;
 
     #[test]
     fn tilde_expands_to_home() {
-        let home = std::env::home_dir().unwrap();
+        let home = env::home_dir().unwrap();
         assert_eq!(expand_tilde("~"), home);
         assert_eq!(expand_tilde("~/Public"), home.join("Public"));
         assert_eq!(expand_tilde("/tmp/x"), PathBuf::from("/tmp/x"));
@@ -404,7 +412,7 @@ mod tests {
         let c: Config = serde_json::from_str(r#"{"output": "~/Public"}"#).unwrap();
         assert_eq!(
             c.output_dir(),
-            Some(std::env::home_dir().unwrap().join("Public"))
+            Some(env::home_dir().unwrap().join("Public"))
         );
         assert!(serde_json::from_str::<Config>(r#"{"ouput": "x"}"#).is_err());
         assert!(serde_json::from_str::<Config>(r#"{"listen": {"prot": 1}}"#).is_err());
@@ -419,10 +427,10 @@ mod tests {
 
     #[test]
     fn empty_file_is_default() {
-        let path = std::env::temp_dir().join(format!("pouletb-empty-{}.json", std::process::id()));
-        std::fs::write(&path, "\n").unwrap();
+        let path = env::temp_dir().join(format!("pouletb-empty-{}.json", process::id()));
+        fs::write(&path, "\n").unwrap();
         let loaded = Config::load(&path);
-        std::fs::remove_file(&path).unwrap();
+        fs::remove_file(&path).unwrap();
         assert_eq!(loaded.unwrap().peer_limit, 128);
     }
 
@@ -480,7 +488,7 @@ mod tests {
 
     #[test]
     fn busy_listen_port_falls_back_to_random() {
-        let held = std::net::TcpListener::bind((Ipv6Addr::UNSPECIFIED, 0)).unwrap();
+        let held = TcpListener::bind((Ipv6Addr::UNSPECIFIED, 0)).unwrap();
         let busy = held.local_addr().unwrap().port();
         let mut c = Config::default();
         c.listen.port = busy;
@@ -499,10 +507,7 @@ mod tests {
             ..Config::default()
         };
         let (name, ip) = by_range.resolve_bind_interface().unwrap().unwrap();
-        assert!(
-            name.starts_with("lo"),
-            "loopback holds 127.0.0.1, got {name}"
-        );
+        // The loopback's name differs per OS (lo, lo0, "Loopback Pseudo-Interface 1").
         assert_eq!(ip, Some(IpAddr::from([127, 0, 0, 1])));
         assert_eq!(by_range.bind_interface.as_deref(), Some(name.as_str()));
 

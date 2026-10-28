@@ -1,5 +1,6 @@
 # pouletb
 
+[![CI](https://github.com/jfarcand/pouletb/actions/workflows/ci.yml/badge.svg)](https://github.com/jfarcand/pouletb/actions/workflows/ci.yml)
 [![crates.io](https://img.shields.io/crates/v/pouletb.svg)](https://crates.io/crates/pouletb)
 [![License](https://img.shields.io/crates/l/pouletb.svg)](LICENSE)
 
@@ -21,6 +22,8 @@ From [crates.io](https://crates.io/crates/pouletb), with a Rust toolchain ([rust
 ```bash
 cargo install pouletb
 ```
+
+Or a prebuilt binary (Apple Silicon macOS) from [Releases](https://github.com/jfarcand/pouletb/releases): unpack it and put `pouletb` on your `PATH`. It is ad-hoc signed, not notarized, so after a browser download run `xattr -d com.apple.quarantine pouletb` once.
 
 Or the latest commit:
 
@@ -51,7 +54,31 @@ pouletb --print-config                   # the effective config, as JSON
 
 **Multi-file torrents** are downloaded into a sub-folder named after the torrent.
 
-**Sharing:** with `--share` (or `"share": true` in the config), pouletb keeps running after the download is verified and serves it to other peers, showing upload speed, total uploaded, ratio and connected peers. Ctrl-C stops it and prints what was uploaded. Peers can only connect to you if your listen port is reachable: see `listen` below.
+## Sharing: be a good peer
+
+BitTorrent only works because people upload what they download. pouletb is small, but it is not a leech:
+
+- **It uploads while it downloads.** Peers that request pieces you already have get them, the same tit-for-tat every client plays.
+- **`--share` keeps it seeding after the download**, until you press Ctrl-C. The status line shows upload speed, total uploaded, your ratio (uploaded / size) and connected peers, and Ctrl-C prints a summary:
+
+  ```
+  seeding debian-13.7.0-amd64-netinst.iso: up 3.42 MiB/s, uploaded 756.2 MiB (ratio 1.00), 12 peers. Ctrl-C to stop
+  ```
+
+- **`--share --overwrite` seeds what you already have**: the files are re-verified, then served.
+
+To share by default, including torrents opened from the macOS app, put this in your config:
+
+```json
+{ "share": true }
+```
+
+A few habits that make a real difference:
+
+- **Seed to at least a ratio of 1.0**, giving back what you took. pouletb does not stop by itself; stop it when you are satisfied.
+- **Be reachable.** Peers can only connect to you if your listen port is open. pouletb listens with UPnP by default, which covers most home routers. Behind a VPN, UPnP cannot help: use your provider's forwarded port as `listen.port` (see the VPN example below).
+- **Don't starve uploads.** A tiny `upload_limit` slows the swarm and, through tit-for-tat, your own download.
+- **Respect private trackers.** Their rules on seeding and ratio apply, and they forbid extra public trackers: leave `trackers.extra` empty for their torrents.
 
 ## macOS: open torrents with a double-click
 
@@ -65,6 +92,7 @@ git clone https://github.com/jfarcand/pouletb && pouletb/macos/install.sh
 - The app goes into `~/Applications` (set `POULETB_APP_DIR` to change it). Nothing needs Xcode: it is an AppleScript applet built with the system's `osacompile`.
 - The first time, macOS asks whether Pouletb may control Terminal; allow it. Changing the `magnet:` handler may also ask for confirmation.
 - `macos/install.sh --uninstall` removes it, and your previous torrent app becomes the handler again.
+- With `"share": true` in the config, a double-clicked torrent keeps seeding in its Terminal window after it finishes; close the window or press Ctrl-C to stop.
 
 ## Config
 
@@ -151,6 +179,10 @@ Route peer connections through a SOCKS5 proxy:
 
 - **Manage several torrents or run in the background.** One invocation, one torrent.
 - **Remember torrents between runs.** There is no session state; resuming or seeding again is just rerunning with `--overwrite`.
+
+## Changes
+
+See [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 

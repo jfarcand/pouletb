@@ -26,3 +26,35 @@ tracing-subscriber = "0.3.23"
 
 [profile.release]
 strip = true
+
+# Same lint policy as dravr-platform's workspace: every clippy group denied,
+# with its allow-list. Not copied: its disallowed_methods ban on
+# anyhow::Context, which exists to force typed provider errors; a CLI whose
+# errors go straight to a person is what anyhow's context chain is for.
+[lints.rust]
+unsafe_code = "deny"
+missing_docs = "warn"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+nursery = { level = "deny", priority = -1 }
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+cast_possible_truncation = "allow"
+cast_sign_loss = "allow"
+cast_precision_loss = "allow"
+missing_const_for_fn = "allow"
+struct_excessive_bools = "allow"
+too_many_lines = "allow"
+significant_drop_tightening = "allow"
+cognitive_complexity = "deny"
+clone_on_copy = "warn"
+redundant_clone = "warn"
+await_holding_lock = "warn"
+str_to_string = "deny"
+module_name_repetitions = "allow"
+uninlined_format_args = "warn"
+map_unwrap_or = "warn"
+absolute_paths = "deny"
