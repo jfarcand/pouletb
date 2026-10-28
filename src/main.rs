@@ -7,7 +7,7 @@ use std::{path::PathBuf, time::Duration};
 use anyhow::{Context, bail};
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
-use librqbit::{AddTorrent, AddTorrentOptions, AddTorrentResponse, Session, SessionOptions};
+use librqbit::{AddTorrent, AddTorrentOptions, AddTorrentResponse, Session};
 use tracing::Level;
 
 mod config;
@@ -16,7 +16,8 @@ mod config;
 #[command(version, about = "Download a single torrent and exit")]
 struct Args {
     /// Path to a .torrent file, a magnet link, or an http(s) URL to a .torrent
-    torrent: String,
+    #[arg(required_unless_present = "print_config")]
+    torrent: Option<String>,
 
     /// Directory to download into [default: `output` from the config file, else .]
     #[arg(short, long)]
@@ -37,6 +38,10 @@ struct Args {
     /// Print the torrent's files and exit without downloading
     #[arg(long)]
     list: bool,
+
+    /// Print the effective config (file merged over defaults) as JSON and exit
+    #[arg(long)]
+    print_config: bool,
 
     /// Show librqbit logs (repeat for more: -v info, -vv debug)
     #[arg(short, action = clap::ArgAction::Count)]
@@ -61,6 +66,14 @@ async fn main() -> anyhow::Result<()> {
         Some(path) => config::Config::load(&path)?,
         None => config::Config::default(),
     };
+    if args.print_config {
+        println!("{}", serde_json::to_string_pretty(&config)?);
+        return Ok(());
+    }
+    let Some(torrent) = args.torrent.as_deref() else {
+        bail!("missing torrent argument");
+    };
+
     let output = args
         .output
         .clone()
@@ -70,9 +83,8 @@ async fn main() -> anyhow::Result<()> {
     std::fs::create_dir_all(&output)
         .with_context(|| format!("cannot create {}", output.display()))?;
 
-    // A one-shot tool: no session persistence or fastresume. librqbit still caches
-    // its DHT routing table in the OS cache dir so the next run finds peers faster.
-    let session = Session::new_with_opts(output, SessionOptions::default())
+    // A one-shot tool: no session persistence or fastresume.
+    let session = Session::new_with_opts(output, config.session_options()?)
         .await
         .context("cannot start torrent session")?;
 
@@ -80,9 +92,11 @@ async fn main() -> anyhow::Result<()> {
         overwrite: args.overwrite,
         only_files_regex: args.only.clone(),
         list_only: args.list,
+        trackers: (!config.trackers.extra.is_empty()).then(|| config.trackers.extra.clone()),
+        force_tracker_interval: config.trackers.force_interval_secs.map(Duration::from_secs),
         ..Default::default()
     };
-    let add = AddTorrent::from_cli_argument(&args.torrent)?;
+    let add = AddTorrent::from_cli_argument(torrent)?;
 
     let handle = match session.add_torrent(add, Some(opts)).await? {
         AddTorrentResponse::ListOnly(list) => {
