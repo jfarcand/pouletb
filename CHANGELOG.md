@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- librqbit's features are explicit (`default-tls` only): rqbit's web UI / REST server (`http-api`) and DLNA server (`upnp-serve-adapter`) are never compiled in, and CI fails if either is enabled. The unused `http-api-client` is gone too.
+
 ## 0.2.0
 
 - `--share` (or `"share": true`) keeps seeding after the download is verified, until Ctrl-C, showing upload speed, total uploaded, ratio and peers. `--share --overwrite` seeds an existing download.

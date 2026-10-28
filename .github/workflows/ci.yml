@@ -54,6 +54,13 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       # Builds the crate exactly as crates.io would receive it.
       - run: cargo package --locked
+      # pouletb must never ship rqbit's web UI / REST server or its DLNA server.
+      - name: No HTTP or media server compiled in
+        run: |
+          if cargo tree --locked -e features -i librqbit | grep -E 'librqbit feature "(http-api|upnp-serve-adapter)"'; then
+            echo "::error::librqbit's http-api or upnp-serve-adapter feature is enabled"
+            exit 1
+          fi
 
   macos-app:
     name: macOS companion app
