@@ -15,6 +15,24 @@ debian-13.7.0-amd64-netinst.iso (42 peers) [=========>          ] 371.2 MiB/756.
 
 The BitTorrent engine is [librqbit](https://github.com/ikatson/rqbit): trackers (HTTP and UDP), DHT, magnet links, PEX, uTP, UPnP, and SHA-1 piece verification. pouletb is the thin command-line layer on top.
 
+## Why pouletb and not `rqbit download`?
+
+pouletb exists because of [rqbit](https://github.com/ikatson/rqbit). Its engine, librqbit, does all the real work here, and we rely on it every day. rqbit itself does far more than pouletb ever will: a server with a web UI, a desktop app, streaming, many torrents at once, state kept between runs. If you want any of that, use rqbit. It is also in Homebrew's official formulae (`brew install rqbit`).
+
+pouletb only makes the command-line case simpler: one torrent, one command, sensible defaults, nothing else running. Same engine, different defaults:
+
+| | pouletb | `rqbit download` |
+|---|---|---|
+| After the download | Exits; `--share` keeps seeding | Keeps running; `-e` / `--exit-on-finish` exits |
+| HTTP API (web UI backend) | Not compiled in | Starts on `127.0.0.1`, random port; `--disable-http-api` turns it off |
+| Settings | A JSON config file, plus a few flags | Flags and `RQBIT_*` environment variables |
+| Output | One progress bar, then one seeding line | Log lines |
+| Incoming peers | Listens on 4240 with UPnP | Random port, UPnP only with `--upnp-port-forward` |
+| VPN binding | `bind_interface` by name or address range, refusing to start when the VPN is down | `--bind-device` by name |
+| macOS | Double-click a `.torrent` or a magnet link to open it in Terminal | rqbit's desktop app, a separate GUI |
+
+In short, pouletb is `rqbit download -e --disable-http-api` with a progress bar, a config file, and nothing listening but the peer port. *(Compared with rqbit 9.0.1; its defaults may change.)*
+
 ## Install
 
 With [Homebrew](https://brew.sh) (macOS, Linux x86_64):
