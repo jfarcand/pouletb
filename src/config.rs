@@ -7,7 +7,7 @@
 //! shows.
 
 use std::{
-    net::{Ipv6Addr, SocketAddr},
+    net::{IpAddr, Ipv6Addr, SocketAddr},
     num::NonZeroU32,
     path::{Path, PathBuf},
     time::Duration,
@@ -18,6 +18,8 @@ use librqbit::{
     ConnectionOptions, ListenerMode, ListenerOptions, PeerConnectionOptions, SessionOptions,
     dht::Id20, limits::LimitsConfig,
 };
+use ipnet::IpNet;
+use network_interface::{NetworkInterface, NetworkInterfaceConfig};
 use serde::{Deserialize, Serialize};
 
 /// librqbit sends and receives 16 KiB blocks and rate-limits a whole block at
@@ -40,7 +42,11 @@ pub struct Config {
     pub peer_timeouts: PeerTimeouts,
     /// `socks5://[user:pass@]host:port` for every outgoing peer connection.
     pub proxy: Option<String>,
-    /// Network interface for all traffic, e.g. a VPN's `utun3` (macOS, Linux).
+    /// Network interface for all traffic (macOS, Linux): a name such as `utun3`,
+    /// or an address range such as `10.128.0.0/10` to pick whichever interface
+    /// holds an address in it. A VPN's `utunN` number can change on reconnect;
+    /// its address range does not. Either way pouletb refuses to start when no
+    /// interface matches, so traffic never falls back to another route.
     pub bind_interface: Option<String>,
     pub ipv4_only: bool,
     /// Open outgoing TCP connections to peers.
@@ -227,6 +233,35 @@ impl Config {
             return Some(port);
         }
         None
+    }
+
+    /// Resolve `bind_interface` to an interface name that exists right now.
+    /// Returns the chosen name and the address that matched, if any.
+    pub fn resolve_bind_interface(&mut self) -> anyhow::Result<Option<(String, Option<IpAddr>)>> {
+        let Some(wanted) = self.bind_interface.clone() else {
+            return Ok(None);
+        };
+        let interfaces = NetworkInterface::show().context("cannot list network interfaces")?;
+        let found = match wanted.parse::<IpNet>() {
+            Ok(range) => interfaces
+                .iter()
+                .find_map(|i| {
+                    let ip = i.addr.iter().map(|a| a.ip()).find(|ip| range.contains(ip))?;
+                    Some((i.name.clone(), Some(ip)))
+                })
+                .with_context(|| {
+                    format!("bind_interface: no interface has an address in {range}; is the VPN connected?")
+                })?,
+            Err(_) if wanted.contains('/') => bail!("bind_interface {wanted:?} is not a valid address range"),
+            Err(_) => {
+                if !interfaces.iter().any(|i| i.name == wanted) {
+                    bail!("bind_interface: no interface named {wanted}; is the VPN connected?");
+                }
+                (wanted, None)
+            }
+        };
+        self.bind_interface = Some(found.0.clone());
+        Ok(Some(found))
     }
 
     pub fn output_dir(&self) -> Option<PathBuf> {
@@ -440,6 +475,41 @@ mod tests {
         let mut free = Config::default();
         free.listen.port = 0;
         assert_eq!(free.pick_free_listen_port(), None);
+    }
+
+    #[test]
+    fn bind_interface_resolves_by_range_or_name() {
+        let mut by_range = Config {
+            bind_interface: Some("127.0.0.0/8".into()),
+            ..Config::default()
+        };
+        let (name, ip) = by_range.resolve_bind_interface().unwrap().unwrap();
+        assert!(name.starts_with("lo"), "loopback holds 127.0.0.1, got {name}");
+        assert_eq!(ip, Some(IpAddr::from([127, 0, 0, 1])));
+        assert_eq!(by_range.bind_interface.as_deref(), Some(name.as_str()));
+
+        let mut by_name = Config {
+            bind_interface: Some(name.clone()),
+            ..Config::default()
+        };
+        assert_eq!(by_name.resolve_bind_interface().unwrap().unwrap(), (name, None));
+    }
+
+    #[test]
+    fn bind_interface_refuses_when_nothing_matches() {
+        let refuse = |value: &str| {
+            Config {
+                bind_interface: Some(value.into()),
+                ..Config::default()
+            }
+            .resolve_bind_interface()
+            .unwrap_err()
+            .to_string()
+        };
+        // 192.0.2.0/24 is TEST-NET-1, never assigned to a real interface.
+        assert!(refuse("192.0.2.0/24").contains("no interface has an address"));
+        assert!(refuse("utun999").contains("no interface named"));
+        assert!(refuse("10.0.0.0/99").contains("not a valid address range"));
     }
 
     #[test]

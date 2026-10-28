@@ -106,7 +106,7 @@ Unknown keys and invalid values are rejected at startup with the file's name, so
 | `peer_timeouts.read_write_secs` | `10` | |
 | `peer_timeouts.keep_alive_secs` | `120` | |
 | `proxy` | null | `socks5://[user:pass@]host:port` for all peer connections. |
-| `bind_interface` | null | Network interface for all traffic, e.g. a VPN's `utun3` (macOS, Linux). |
+| `bind_interface` | null | Interface for all torrent traffic (macOS, Linux): a name like `utun3`, or an address range like `10.128.0.0/10` to use whichever interface holds an address in it. pouletb refuses to start when nothing matches, so this doubles as a VPN kill switch. |
 | `ipv4_only` | `false` | |
 | `outgoing_tcp` | `true` | Open outgoing TCP connections to peers. |
 | `local_discovery` | `true` | Find peers on the local network (BEP 14). |
@@ -124,11 +124,16 @@ Cap bandwidth so a large download does not saturate the connection:
 { "download_limit": "20M", "upload_limit": "2M" }
 ```
 
-Keep torrent traffic on a VPN interface (find its name with `ifconfig` / `ip link`):
+Keep torrent traffic on a VPN, with a kill switch. A WireGuard tunnel's `utunN` name can change on every reconnect, so match the VPN's address range instead (see `ifconfig`; AirVPN, for example, hands out `10.128.0.0/10`). With a port forwarded by the VPN provider, peers can connect to you too:
 
 ```json
-{ "bind_interface": "utun3", "listen": { "upnp": false } }
+{
+  "bind_interface": "10.128.0.0/10",
+  "listen": { "port": 63712, "upnp": false }
+}
 ```
+
+If the VPN is down, pouletb stops with `no interface has an address in 10.128.0.0/10; is the VPN connected?` instead of downloading over your normal connection. If the VPN drops mid-download, connections stall rather than move to another route; rerun once it is back.
 
 Route peer connections through a SOCKS5 proxy:
 

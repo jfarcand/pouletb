@@ -83,6 +83,12 @@ async fn main() -> anyhow::Result<()> {
     std::fs::create_dir_all(&output)
         .with_context(|| format!("cannot create {}", output.display()))?;
 
+    if let Some((name, ip)) = config.resolve_bind_interface()? {
+        match ip {
+            Some(ip) => eprintln!("bound to {name} ({ip})"),
+            None => eprintln!("bound to {name}"),
+        }
+    }
     if let Some(busy) = config.pick_free_listen_port() {
         eprintln!("listen port {busy} is in use, listening on a random port instead");
     }
