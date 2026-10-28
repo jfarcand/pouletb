@@ -14,11 +14,11 @@ use std::{
 };
 
 use anyhow::{Context, bail};
+use ipnet::IpNet;
 use librqbit::{
     ConnectionOptions, ListenerMode, ListenerOptions, PeerConnectionOptions, SessionOptions,
     dht::Id20, limits::LimitsConfig,
 };
-use ipnet::IpNet;
 use network_interface::{NetworkInterface, NetworkInterfaceConfig};
 use serde::{Deserialize, Serialize};
 
@@ -31,6 +31,9 @@ const MIN_RATE: u32 = 16 * 1024;
 pub struct Config {
     /// Default download directory; `~` is expanded. `-o` overrides it.
     pub output: Option<String>,
+    /// Keep seeding after the download completes, until Ctrl-C. `--share` turns it on
+    /// for one run.
+    pub share: bool,
     /// Bytes per second, as a number or with a K/M/G suffix ("10M"). null = unlimited.
     pub download_limit: Option<Rate>,
     pub upload_limit: Option<Rate>,
@@ -133,6 +136,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             output: None,
+            share: false,
             download_limit: None,
             upload_limit: None,
             peer_limit: 128,
@@ -398,7 +402,10 @@ mod tests {
     #[test]
     fn parses_output_and_rejects_unknown_keys() {
         let c: Config = serde_json::from_str(r#"{"output": "~/Public"}"#).unwrap();
-        assert_eq!(c.output_dir(), Some(std::env::home_dir().unwrap().join("Public")));
+        assert_eq!(
+            c.output_dir(),
+            Some(std::env::home_dir().unwrap().join("Public"))
+        );
         assert!(serde_json::from_str::<Config>(r#"{"ouput": "x"}"#).is_err());
         assert!(serde_json::from_str::<Config>(r#"{"listen": {"prot": 1}}"#).is_err());
     }
@@ -429,13 +436,18 @@ mod tests {
         assert_eq!(r("1M").unwrap().unwrap().get(), 1024 * 1024);
         assert!(r("1K").is_err(), "below one block per second");
         assert!(r("8G").is_err(), "does not fit librqbit's u32");
-        assert_eq!(rate("x", Some(&Rate::Bytes(65536))).unwrap().unwrap().get(), 65536);
+        assert_eq!(
+            rate("x", Some(&Rate::Bytes(65536))).unwrap().unwrap().get(),
+            65536
+        );
     }
 
     #[test]
     fn defaults_map_to_librqbit_defaults() {
         let o = Config::default().session_options().unwrap();
-        let l = o.listen.expect("pouletb listens by default, unlike librqbit");
+        let l = o
+            .listen
+            .expect("pouletb listens by default, unlike librqbit");
         assert_eq!(l.listen_addr.port(), 4240);
         assert!(l.enable_upnp_port_forwarding);
         assert!(o.dht.is_some_and(|d| d.persistence.is_some()));
@@ -457,7 +469,10 @@ mod tests {
         assert_eq!(l.listen_addr.port(), 6881);
         assert!(l.enable_upnp_port_forwarding && l.mode.utp_enabled() && l.mode.tcp_enabled());
         assert!(o.dht.is_none() && o.disable_trackers);
-        assert_eq!(o.connect.unwrap().proxy_url.as_deref(), Some("socks5://127.0.0.1:1080"));
+        assert_eq!(
+            o.connect.unwrap().proxy_url.as_deref(),
+            Some("socks5://127.0.0.1:1080")
+        );
         assert_eq!(o.bind_device_name.as_deref(), Some("utun3"));
         assert_eq!(o.ratelimits.download_bps.unwrap().get(), 2 * 1024 * 1024);
         assert_eq!(o.peer_limit, Some(40));
@@ -484,7 +499,10 @@ mod tests {
             ..Config::default()
         };
         let (name, ip) = by_range.resolve_bind_interface().unwrap().unwrap();
-        assert!(name.starts_with("lo"), "loopback holds 127.0.0.1, got {name}");
+        assert!(
+            name.starts_with("lo"),
+            "loopback holds 127.0.0.1, got {name}"
+        );
         assert_eq!(ip, Some(IpAddr::from([127, 0, 0, 1])));
         assert_eq!(by_range.bind_interface.as_deref(), Some(name.as_str()));
 
@@ -492,7 +510,10 @@ mod tests {
             bind_interface: Some(name.clone()),
             ..Config::default()
         };
-        assert_eq!(by_name.resolve_bind_interface().unwrap().unwrap(), (name, None));
+        assert_eq!(
+            by_name.resolve_bind_interface().unwrap().unwrap(),
+            (name, None)
+        );
     }
 
     #[test]
@@ -514,7 +535,11 @@ mod tests {
 
     #[test]
     fn bad_values_are_rejected() {
-        let bad = |json: &str| serde_json::from_str::<Config>(json).unwrap().session_options();
+        let bad = |json: &str| {
+            serde_json::from_str::<Config>(json)
+                .unwrap()
+                .session_options()
+        };
         assert!(bad(r#"{"proxy": "http://x:1"}"#).is_err());
         assert!(bad(r#"{"peer_id": "nothex"}"#).is_err());
         assert!(bad(r#"{"upload_limit": "1K"}"#).is_err());

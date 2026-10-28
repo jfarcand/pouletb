@@ -3,9 +3,9 @@
 [![crates.io](https://img.shields.io/crates/v/pouletb.svg)](https://crates.io/crates/pouletb)
 [![License](https://img.shields.io/crates/l/pouletb.svg)](LICENSE)
 
-**Download one torrent from the command line, then exit.**
+**Download one torrent from the command line, then exit, or keep sharing it.**
 
-No GUI, no daemon, no web UI, no RSS, no plugins, no seeding afterwards. Give it a `.torrent` file, a magnet link or a URL; it shows a progress bar, verifies every piece, and quits when the files are on disk.
+No GUI, no daemon, no web UI, no RSS, no plugins. Give it a `.torrent` file, a magnet link or a URL; it shows a progress bar, verifies every piece, and quits when the files are on disk. With `--share` it stays and seeds until you press Ctrl-C.
 
 ```
 $ pouletb debian-13.7.0-amd64-netinst.iso.torrent
@@ -40,6 +40,9 @@ pouletb https://example.org/x.torrent    # http(s) URLs to a .torrent
 pouletb file.torrent --list              # list the files, download nothing
 pouletb file.torrent --only '\.mkv$'     # only files whose path matches a regex
 pouletb file.torrent --overwrite         # resume an interrupted download
+pouletb file.torrent --share             # keep seeding after the download, until Ctrl-C
+pouletb file.torrent --share --overwrite # seed files you already downloaded
+pouletb file.torrent --peer 10.0.0.5:4240  # also connect to a known peer (repeatable)
 pouletb file.torrent -v                  # engine logs (-vv for debug)
 pouletb --print-config                   # the effective config, as JSON
 ```
@@ -47,6 +50,8 @@ pouletb --print-config                   # the effective config, as JSON
 **Ctrl-C** stops cleanly. Rerun the same command with `--overwrite` to resume: pieces already on disk are re-verified, not downloaded again. (`--overwrite` is needed because librqbit refuses to write over existing files by default.)
 
 **Multi-file torrents** are downloaded into a sub-folder named after the torrent.
+
+**Sharing:** with `--share` (or `"share": true` in the config), pouletb keeps running after the download is verified and serves it to other peers, showing upload speed, total uploaded, ratio and connected peers. Ctrl-C stops it and prints what was uploaded. Peers can only connect to you if your listen port is reachable: see `listen` below.
 
 ## macOS: open torrents with a double-click
 
@@ -87,6 +92,7 @@ Unknown keys and invalid values are rejected at startup with the file's name, so
 | Key | Default | Meaning |
 |---|---|---|
 | `output` | current dir | Download directory; `~` is expanded. `-o` overrides it. |
+| `share` | `false` | Keep seeding after the download completes, until Ctrl-C. `--share` turns it on for one run. |
 | `download_limit`, `upload_limit` | unlimited | Bytes per second, as a number or `"512K"`, `"10M"`, `"1G"`. Minimum `16K` (one block per second). |
 | `peer_limit` | `128` | Maximum connected peers. |
 | `listen.enabled` | `true` | Accept incoming peer connections. |
@@ -143,9 +149,8 @@ Route peer connections through a SOCKS5 proxy:
 
 ## What it deliberately does not do
 
-- **Seed after completion.** It exits as soon as the download is verified. Use a full client if you want to give back to a swarm long-term.
 - **Manage several torrents or run in the background.** One invocation, one torrent.
-- **Remember torrents between runs.** There is no session state; resuming is just rerunning with `--overwrite`.
+- **Remember torrents between runs.** There is no session state; resuming or seeding again is just rerunning with `--overwrite`.
 
 ## License
 
