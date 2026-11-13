@@ -1,7 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.2.1
 
+- Several pouletb can run at once again: when the DHT port saved from a previous run (or set in `dht.port`) is taken, a random one is used instead of failing with "error initializing persistent DHT: Address already in use".
 - librqbit's features are explicit (`default-tls` only): rqbit's web UI / REST server (`http-api`) and DLNA server (`upnp-serve-adapter`) are never compiled in, and CI fails if either is enabled. The unused `http-api-client` is gone too.
 
 ## 0.2.0
