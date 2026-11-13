@@ -9,7 +9,7 @@
 use std::{
     env, fs,
     io::ErrorKind,
-    net::{IpAddr, Ipv6Addr, SocketAddr, TcpListener, UdpSocket},
+    net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener, UdpSocket},
     num::NonZeroU32,
     path::{Path, PathBuf},
     time::Duration,
@@ -19,7 +19,8 @@ use anyhow::{Context, bail};
 use ipnet::IpNet;
 use librqbit::{
     ConnectionOptions, ListenerMode, ListenerOptions, PeerConnectionOptions, SessionOptions,
-    dht::Id20, limits::LimitsConfig,
+    dht::{Id20, PersistentDht},
+    limits::LimitsConfig,
 };
 use network_interface::{NetworkInterface, NetworkInterfaceConfig};
 use serde::{Deserialize, Serialize};
@@ -245,6 +246,33 @@ impl Config {
         None
     }
 
+    /// Fall back to a random DHT port when the one librqbit would use is taken.
+    /// With `dht.port` null, librqbit reuses the port saved in its `dht.json`,
+    /// so a second pouletb running alongside the first would fail on a bind error.
+    pub fn pick_free_dht_port(&mut self) -> Option<u16> {
+        if !self.dht.enabled {
+            return None;
+        }
+        let stored = || {
+            self.dht
+                .persist
+                .then(|| PersistentDht::default_persistence_filename().ok())
+                .flatten()
+                .and_then(|path| stored_dht_port(&path))
+        };
+        let port = self.dht.port.or_else(stored).filter(|&p| p != 0)?;
+        let ip = if self.ipv4_only {
+            IpAddr::V4(Ipv4Addr::UNSPECIFIED)
+        } else {
+            IpAddr::V6(Ipv6Addr::UNSPECIFIED)
+        };
+        if UdpSocket::bind((ip, port)).is_err() {
+            self.dht.port = Some(0);
+            return Some(port);
+        }
+        None
+    }
+
     /// Resolve `bind_interface` to an interface name that exists right now.
     /// Returns the chosen name and the address that matched, if any.
     pub fn resolve_bind_interface(&mut self) -> anyhow::Result<Option<(String, Option<IpAddr>)>> {
@@ -392,6 +420,18 @@ fn expand_tilde(path: &str) -> PathBuf {
     }
 }
 
+/// The port in librqbit's `dht.json`, read the way it reads it on start.
+fn stored_dht_port(path: &Path) -> Option<u16> {
+    #[derive(Deserialize)]
+    struct Stored {
+        addr: SocketAddr,
+    }
+    let text = fs::read_to_string(path).ok()?;
+    serde_json::from_str::<Stored>(&text)
+        .ok()
+        .map(|s| s.addr.port())
+}
+
 #[cfg(test)]
 mod tests {
     use std::process;
@@ -498,6 +538,31 @@ mod tests {
         let mut free = Config::default();
         free.listen.port = 0;
         assert_eq!(free.pick_free_listen_port(), None);
+    }
+
+    #[test]
+    fn busy_dht_port_falls_back_to_random() {
+        let held = UdpSocket::bind((Ipv6Addr::UNSPECIFIED, 0)).unwrap();
+        let busy = held.local_addr().unwrap().port();
+        let mut c = Config::default();
+        c.dht.port = Some(busy);
+        assert_eq!(c.pick_free_dht_port(), Some(busy));
+        assert_eq!(c.dht.port, Some(0));
+        // Some(0) means random to librqbit, even with a stored port.
+        assert_eq!(c.pick_free_dht_port(), None);
+    }
+
+    #[test]
+    fn stored_dht_port_reads_addr() {
+        let dir = env::temp_dir().join("pouletb-dht-test");
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("dht.json");
+        fs::write(&path, r#"{"addr":"[::]:54632","table":{}}"#).unwrap();
+        assert_eq!(stored_dht_port(&path), Some(54632));
+        fs::write(&path, "garbage").unwrap();
+        assert_eq!(stored_dht_port(&path), None);
+        assert_eq!(stored_dht_port(&dir.join("missing.json")), None);
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

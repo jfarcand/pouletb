@@ -109,6 +109,9 @@ async fn main() -> anyhow::Result<()> {
     if let Some(busy) = config.pick_free_listen_port() {
         eprintln!("listen port {busy} is in use, listening on a random port instead");
     }
+    if let Some(busy) = config.pick_free_dht_port() {
+        eprintln!("DHT port {busy} is in use, using a random port instead");
+    }
 
     // A one-shot tool: no session persistence or fastresume.
     let session = Session::new_with_opts(output, config.session_options()?)
